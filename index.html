@@ -1,0 +1,668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D DNA结构模型</title>
+    <!-- 引入外部资源 - 使用更稳定的Three.js版本 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/build/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.132.2/examples/js/controls/OrbitControls.js"></script>
+    
+    <!-- Tailwind 配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#4F46E5',
+                        secondary: '#10B981',
+                        danger: '#EF4444',
+                        dark: '#000000',
+                    }
+                }
+            }
+        }
+    </script>
+    
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .slider-thumb::-webkit-slider-thumb {
+                @apply appearance-none w-4 h-4 rounded-full bg-primary cursor-pointer;
+            }
+            .slider-thumb::-moz-range-thumb {
+                @apply w-4 h-4 rounded-full bg-primary cursor-pointer border-none;
+            }
+        }
+        
+        /* 手机端布局适配 */
+        @media (max-width: 767px) {
+            .control-panel {
+                width: 160px !important;
+                font-size: 11px;
+            }
+            .control-panel h1 {
+                font-size: 1.2rem !important;
+            }
+            .control-panel i.fa-dna {
+                font-size: 1.8rem !important;
+            }
+            .control-panel label {
+                font-size: 0.85rem;
+            }
+            .control-panel button {
+                font-size: 0.75rem;
+                padding: 0.375rem 0.5rem !important;
+            }
+            .control-panel .text-xs {
+                font-size: 0.65rem;
+            }
+        }
+        
+        /* 固定布局样式 */
+        .control-panel {
+            height: 100vh;
+            overflow-y: auto;
+            flex-shrink: 0;
+        }
+        
+        .model-container {
+            flex-grow: 1;
+            min-width: 0;
+        }
+    </style>
+</head>
+<body class="bg-dark text-gray-100 h-screen flex overflow-hidden">
+    <!-- 左侧控制面板 -->
+    <div class="control-panel w-48 md:w-80 bg-gray-800/80 p-4 z-10">
+        <div class="flex items-center mb-6">
+            <i class="fa fa-dna text-primary text-3xl mr-3"></i>
+            <h1 class="text-2xl font-bold">DNA 3D模型</h1>
+        </div>
+        
+        <!-- 状态显示 -->
+        <div id="systemStatus" class="mb-4 p-2 bg-gray-700/50 rounded text-sm">
+            <span>状态: </span><span id="statusText" class="text-secondary">初始化中...</span>
+        </div>
+        
+        <!-- 控制台输出 -->
+        <div id="consoleOutput" class="mb-4 p-2 bg-gray-900/50 rounded text-xs h-16 overflow-y-auto text-gray-400">
+            <p>控制台输出将显示在此处</p>
+        </div>
+        
+        <!-- 碱基对数量控制 -->
+        <div class="mb-4">
+            <label for="baseCount" class="block mb-1 text-sm">碱基对数量 (5-50)</label>
+            <input type="range" id="baseCount" min="5" max="50" value="20" 
+                   class="w-full h-2 bg-gray-700 rounded slider-thumb">
+            <div class="flex justify-between mt-1">
+                <span class="text-xs text-gray-500">5</span>
+                <span id="baseCountValue" class="text-sm text-primary">20</span>
+                <span class="text-xs text-gray-500">50</span>
+            </div>
+        </div>
+        
+        <!-- 旋转速度控制 -->
+        <div class="mb-4">
+            <label for="rotationSpeed" class="block mb-1 text-sm">旋转速度</label>
+            <input type="range" id="rotationSpeed" min="0" max="0.1" step="0.001" value="0.01" 
+                   class="w-full h-2 bg-gray-700 rounded slider-thumb">
+            <div class="flex justify-between mt-1">
+                <span class="text-xs text-gray-500">0</span>
+                <span id="rotationSpeedValue" class="text-sm text-primary">0.01</span>
+                <span class="text-xs text-gray-500">0.1</span>
+            </div>
+        </div>
+        
+        <!-- DNA半径控制 -->
+        <div class="mb-4">
+            <label for="dnaRadius" class="block mb-1 text-sm">DNA半径</label>
+            <input type="range" id="dnaRadius" min="1" max="5" step="0.1" value="2" 
+                   class="w-full h-2 bg-gray-700 rounded slider-thumb">
+            <div class="flex justify-between mt-1">
+                <span class="text-xs text-gray-500">1</span>
+                <span id="dnaRadiusValue" class="text-sm text-primary">2</span>
+                <span class="text-xs text-gray-500">5</span>
+            </div>
+        </div>
+        
+        <!-- 碱基对高度控制 -->
+        <div class="mb-4">
+            <label for="baseHeight" class="block mb-1 text-sm">碱基对高度</label>
+            <input type="range" id="baseHeight" min="0.5" max="2" step="0.1" value="1" 
+                   class="w-full h-2 bg-gray-700 rounded slider-thumb">
+            <div class="flex justify-between mt-1">
+                <span class="text-xs text-gray-500">0.5</span>
+                <span id="baseHeightValue" class="text-sm text-primary">1</span>
+                <span class="text-xs text-gray-500">2</span>
+            </div>
+        </div>
+        
+        <!-- 控制按钮 -->
+        <div class="flex space-x-2 mb-4">
+            <button id="resetView" class="flex-1 bg-primary hover:bg-primary/80 text-white py-2 px-3 rounded text-sm transition">
+                <i class="fa fa-refresh mr-1"></i> 重置
+            </button>
+            <button id="regenerate" class="flex-1 bg-secondary hover:bg-secondary/80 text-white py-2 px-3 rounded text-sm transition">
+                <i class="fa fa-random mr-1"></i> 重新生成
+            </button>
+        </div>
+        
+        <!-- 帮助信息 -->
+        <div class="text-xs text-gray-400">
+            <p class="font-medium text-gray-300 mb-1">操作方法:</p>
+            <ul class="list-disc ml-4 space-y-1">
+                <li>拖动旋转</li>
+                <li>滚动缩放</li>
+                <li>悬停高亮碱基对</li>
+            </ul>
+            <p class="mt-2">碱基对类型: <span class="inline-block w-2 h-2 bg-blue-500 rounded-full align-middle mr-1"></span>A-T, <span class="inline-block w-2 h-2 bg-yellow-500 rounded-full align-middle mr-1"></span>C-G</p>
+        </div>
+    </div>
+    
+    <!-- 主3D渲染区域 -->
+    <div class="model-container flex-1 relative bg-black" id="canvasContainer">
+        <!-- 渲染画布 -->
+            <canvas id="dnaCanvas" class="w-full h-full"></canvas>
+            
+            <!-- 加载覆盖层 -->
+            <div id="loader" class="absolute inset-0 flex items-center justify-center bg-black/90 z-20">
+                <div class="text-center">
+                    <div class="w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-3"></div>
+                    <p>加载DNA模型中...</p>
+                    <p id="loadProgress" class="text-xs text-gray-400 mt-2">初始化组件</p>
+                </div>
+            </div>
+            
+            <!-- 错误覆盖层 -->
+            <div id="errorOverlay" class="absolute inset-0 bg-black/95 z-30 hidden flex-col items-center justify-center p-6">
+                <i class="fa fa-exclamation-triangle text-yellow-500 text-5xl mb-4"></i>
+                <h2 class="text-xl font-bold mb-2">加载模型失败</h2>
+                <p id="errorMessage" class="text-gray-300 mb-6 text-center max-w-md">加载3D模型时发生错误</p>
+                <div id="errorDetails" class="text-xs bg-gray-800/50 p-3 rounded mb-6 w-full max-w-md hidden">
+                    <p class="font-medium mb-1">错误详情:</p>
+                    <pre id="errorLog" class="text-gray-400 whitespace-pre-wrap"></pre>
+                </div>
+                <button id="retryButton" class="bg-primary hover:bg-primary/80 text-white py-2 px-6 rounded transition">
+                    重试加载
+                </button>
+                <button id="showDetails" class="mt-2 text-sm text-gray-400 hover:text-gray-200 transition">
+                    显示错误详情
+                </button>
+            </div>
+        </div>
+
+    <script>
+        // 日志系统 - 帮助调试
+        function log(message) {
+            const consoleEl = document.getElementById('consoleOutput');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('p');
+            logEntry.innerHTML = `<span class="text-gray-500">[${timestamp}]</span> ${message}`;
+            consoleEl.appendChild(logEntry);
+            consoleEl.scrollTop = consoleEl.scrollHeight;
+            console.log(`DNA Model: ${message}`);
+        }
+        
+        // 更新状态显示
+        function updateStatus(text, isError = false) {
+            const statusEl = document.getElementById('statusText');
+            statusEl.textContent = text;
+            if (isError) {
+                statusEl.className = 'text-danger';
+            } else {
+                statusEl.className = 'text-secondary';
+            }
+        }
+        
+        // 更新加载进度
+        function updateLoadProgress(text) {
+            document.getElementById('loadProgress').textContent = text;
+            log(text);
+        }
+        
+        // 显示错误信息
+        function showError(message, error = null) {
+            updateStatus('Error', true);
+            document.getElementById('loader').classList.add('hidden');
+            document.getElementById('errorMessage').textContent = message;
+            
+            // 如果有错误对象，显示详细信息
+            if (error) {
+                document.getElementById('errorLog').textContent = 
+                    `${error.name}: ${error.message}\n${error.stack || 'No stack trace available'}`;
+                document.getElementById('errorDetails').classList.remove('hidden');
+            }
+            
+            document.getElementById('errorOverlay').classList.remove('hidden');
+            document.getElementById('errorOverlay').style.display = 'flex';
+        }
+        
+        // 模型参数
+        const params = {
+            baseCount: 20,
+            rotationSpeed: 0.01,
+            dnaRadius: 2,
+            baseHeight: 1
+        };
+        
+        // Three.js核心变量
+        let scene, camera, renderer, controls;
+        let dnaGroup, strand1, strand2, basePairs = [];
+        let raycaster, mouse;
+        let hoveredBase = null;
+        let isAnimating = false;
+        
+        // 初始化函数 - 分步执行以更好地跟踪错误
+        function init() {
+            try {
+                // 重置所有状态
+                cleanup();
+                
+                // 显示加载界面
+                document.getElementById('loader').classList.remove('hidden');
+                document.getElementById('errorOverlay').classList.add('hidden');
+                updateStatus('Initializing...');
+                
+                // 步骤1: 检查浏览器兼容性
+                updateLoadProgress('Checking browser compatibility');
+                if (!checkBrowserCompatibility()) {
+                    return;
+                }
+                
+                // 步骤2: 创建基础场景组件
+                updateLoadProgress('Creating scene components');
+                createScene();
+                
+                // 步骤3: 创建DNA结构
+                updateLoadProgress('Generating DNA structure');
+                createDNA();
+                
+                // 步骤4: 设置交互
+                updateLoadProgress('Setting up interactions');
+                setupInteractions();
+                
+                // 步骤5: 开始动画
+                updateLoadProgress('Starting animation');
+                startAnimation();
+                
+                // 完成加载
+                setTimeout(() => {
+                    document.getElementById('loader').classList.add('hidden');
+                    updateStatus('Ready');
+                    log('Model loaded successfully');
+                }, 500);
+                
+            } catch (error) {
+                console.error('Initialization error:', error);
+                showError('Failed to initialize 3D model', error);
+            }
+        }
+        
+        // 检查浏览器兼容性
+        function checkBrowserCompatibility() {
+            // 检查WebGL支持
+            if (!window.WebGLRenderingContext) {
+                showError('Your browser does not support WebGL, which is required for 3D rendering. Please use a modern browser.');
+                return false;
+            }
+            
+            // 尝试创建WebGL上下文
+            const canvas = document.createElement('canvas');
+            const gl = canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+            if (!gl) {
+                showError('Could not initialize WebGL. Your browser may not support it or it may be disabled.');
+                return false;
+            }
+            
+            log('Browser compatibility check passed');
+            return true;
+        }
+        
+        // 创建场景
+        function createScene() {
+            // 创建场景
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x000000);
+            
+            // 添加简单背景
+            const bgGeometry = new THREE.PlaneGeometry(100, 100);
+            const bgMaterial = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            const background = new THREE.Mesh(bgGeometry, bgMaterial);
+            background.position.z = -50;
+            scene.add(background);
+            
+            // 创建相机
+            camera = new THREE.PerspectiveCamera(
+                75, 
+                document.getElementById('canvasContainer').clientWidth / 
+                document.getElementById('canvasContainer').clientHeight, 
+                0.1, 
+                1000
+            );
+            camera.position.z = 15;
+            
+            // 创建渲染器
+            const canvas = document.getElementById('dnaCanvas');
+            renderer = new THREE.WebGLRenderer({
+                canvas: canvas,
+                antialias: true,
+                alpha: false
+            });
+            renderer.setSize(
+                document.getElementById('canvasContainer').clientWidth,
+                document.getElementById('canvasContainer').clientHeight
+            );
+            renderer.setPixelRatio(window.devicePixelRatio);
+            
+            // 添加光源
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            
+            const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            directionalLight.position.set(5, 10, 7.5);
+            scene.add(directionalLight);
+            
+            // 创建控制器
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.05;
+            
+            // 创建DNA组
+            dnaGroup = new THREE.Group();
+            scene.add(dnaGroup);
+        }
+        
+        // 创建DNA结构
+        function createDNA() {
+            // 清除现有结构
+            clearDNA();
+            
+            // 创建链材质
+            const strand1Material = new THREE.MeshBasicMaterial({ color: 0x10B981 }); // 绿色链
+            const strand2Material = new THREE.MeshBasicMaterial({ color: 0xEF4444 }); // 红色链
+            
+            // 创建链的点
+            const strand1Points = [];
+            const strand2Points = [];
+            
+            for (let i = 0; i <= params.baseCount; i++) {
+                const angle = (i * 0.5) % (Math.PI * 2);
+                // 第一条链的点
+                strand1Points.push(new THREE.Vector3(
+                    Math.cos(angle) * params.dnaRadius,
+                    i * params.baseHeight,
+                    Math.sin(angle) * params.dnaRadius
+                ));
+                // 第二条链的点（与第一条链相对）
+                strand2Points.push(new THREE.Vector3(
+                    Math.cos(angle + Math.PI) * params.dnaRadius,
+                    i * params.baseHeight,
+                    Math.sin(angle + Math.PI) * params.dnaRadius
+                ));
+            }
+            
+            // 创建曲线
+            const curve1 = new THREE.CatmullRomCurve3(strand1Points);
+            const curve2 = new THREE.CatmullRomCurve3(strand2Points);
+            
+            // 创建管状几何体作为DNA链
+            const tubeGeometry1 = new THREE.TubeGeometry(curve1, 100, 0.15, 16, false);
+            const tubeGeometry2 = new THREE.TubeGeometry(curve2, 100, 0.15, 16, false);
+            
+            strand1 = new THREE.Mesh(tubeGeometry1, strand1Material);
+            strand2 = new THREE.Mesh(tubeGeometry2, strand2Material);
+            
+            dnaGroup.add(strand1, strand2);
+            
+            // 创建碱基对
+            for (let i = 0; i < params.baseCount; i++) {
+                const height = i * params.baseHeight;
+                const angle = (i * 0.5) % (Math.PI * 2);
+                
+                // 计算位置
+                const x1 = Math.cos(angle) * params.dnaRadius;
+                const z1 = Math.sin(angle) * params.dnaRadius;
+                const x2 = Math.cos(angle + Math.PI) * params.dnaRadius;
+                const z2 = Math.sin(angle + Math.PI) * params.dnaRadius;
+                
+                // 随机决定碱基对类型
+                const isAT = Math.random() > 0.5;
+                const baseColor = isAT ? 0x3B82F6 : 0xF59E0B;
+                
+                // 创建碱基对
+                const baseGeometry = new THREE.CylinderGeometry(0.2, 0.2, params.dnaRadius * 2, 16);
+                const baseMaterial = new THREE.MeshBasicMaterial({ color: baseColor });
+                const basePair = new THREE.Mesh(baseGeometry, baseMaterial);
+                
+                // 定位和旋转
+                basePair.position.set((x1 + x2) / 2, height, (z1 + z2) / 2);
+                const direction = new THREE.Vector3(x2 - x1, 0, z2 - z1);
+                const axis = new THREE.Vector3(0, 1, 0).cross(direction);
+                const angleRad = Math.atan2(
+                    new THREE.Vector3(0, 1, 0).cross(direction).length(),
+                    new THREE.Vector3(0, 1, 0).dot(direction)
+                );
+                basePair.quaternion.setFromAxisAngle(axis.normalize(), angleRad);
+                
+                // 存储原始颜色用于高亮
+                basePair.userData.originalColor = baseColor;
+                basePair.userData.highlightColor = 0xffffff;
+                
+                dnaGroup.add(basePair);
+                basePairs.push(basePair);
+            }
+            
+            // 调整DNA模型居中显示
+            // 计算模型的总高度
+            const totalHeight = params.baseCount * params.baseHeight;
+            // 将DNA组的位置向上移动一半高度，使模型中心位于原点上方
+            dnaGroup.position.y = -totalHeight / 2;
+        }
+        
+        // 清除DNA结构
+        function clearDNA() {
+            if (strand1) {
+                dnaGroup.remove(strand1);
+                strand1.geometry.dispose();
+            }
+            if (strand2) {
+                dnaGroup.remove(strand2);
+                strand2.geometry.dispose();
+            }
+            
+            basePairs.forEach(base => {
+                dnaGroup.remove(base);
+                base.geometry.dispose();
+            });
+            basePairs = [];
+        }
+        
+        // 设置交互
+        function setupInteractions() {
+            // 射线投射器用于鼠标检测
+            raycaster = new THREE.Raycaster();
+            mouse = new THREE.Vector2();
+            
+            // 窗口大小调整
+            window.addEventListener('resize', onWindowResize);
+            
+            // 鼠标移动 - 用于碱基对高亮
+            document.getElementById('canvasContainer').addEventListener('mousemove', onMouseMove);
+            
+            // 控制面板事件
+            document.getElementById('baseCount').addEventListener('input', function() {
+                params.baseCount = parseInt(this.value);
+                document.getElementById('baseCountValue').textContent = params.baseCount;
+                updateDNA();
+            });
+            
+            document.getElementById('rotationSpeed').addEventListener('input', function() {
+                params.rotationSpeed = parseFloat(this.value);
+                document.getElementById('rotationSpeedValue').textContent = params.rotationSpeed.toFixed(3);
+            });
+            
+            document.getElementById('dnaRadius').addEventListener('input', function() {
+                params.dnaRadius = parseFloat(this.value);
+                document.getElementById('dnaRadiusValue').textContent = params.dnaRadius.toFixed(1);
+                updateDNA();
+            });
+            
+            document.getElementById('baseHeight').addEventListener('input', function() {
+                params.baseHeight = parseFloat(this.value);
+                document.getElementById('baseHeightValue').textContent = params.baseHeight.toFixed(1);
+                updateDNA();
+            });
+            
+            // 重置视图
+            document.getElementById('resetView').addEventListener('click', resetView);
+            
+            // 重新生成DNA
+            document.getElementById('regenerate').addEventListener('click', function() {
+                updateLoadProgress('Regenerating DNA structure');
+                document.getElementById('loader').classList.remove('hidden');
+                setTimeout(() => {
+                    createDNA();
+                    document.getElementById('loader').classList.add('hidden');
+                    log('DNA structure regenerated');
+                }, 300);
+            });
+            
+            // 错误界面按钮
+            document.getElementById('retryButton').addEventListener('click', init);
+            document.getElementById('showDetails').addEventListener('click', function() {
+                document.getElementById('errorDetails').classList.toggle('hidden');
+            });
+        }
+        
+        // 更新DNA结构
+        function updateDNA() {
+            // 简单的更新方式，确保稳定性
+            updateLoadProgress('Updating DNA structure');
+            document.getElementById('loader').classList.remove('hidden');
+            
+            setTimeout(() => {
+                createDNA();
+                document.getElementById('loader').classList.add('hidden');
+                log('DNA structure updated');
+            }, 300);
+        }
+        
+        // 窗口大小调整
+        function onWindowResize() {
+            const container = document.getElementById('canvasContainer');
+            camera.aspect = container.clientWidth / container.clientHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(container.clientWidth, container.clientHeight);
+        }
+        
+        // 鼠标移动处理
+        function onMouseMove(event) {
+            const rect = renderer.domElement.getBoundingClientRect();
+            mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+            mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+        }
+        
+        // 检查碱基对悬停
+        function checkHover() {
+            if (!raycaster || !camera) return;
+            
+            raycaster.setFromCamera(mouse, camera);
+            const intersects = raycaster.intersectObjects(basePairs);
+            
+            // 重置之前的悬停
+            if (hoveredBase && (!intersects.length || intersects[0].object !== hoveredBase)) {
+                hoveredBase.material.color.set(hoveredBase.userData.originalColor);
+                hoveredBase.scale.set(1, 1, 1);
+                hoveredBase = null;
+            }
+            
+            // 新悬停的碱基对
+            if (intersects.length) {
+                const newHover = intersects[0].object;
+                if (newHover !== hoveredBase) {
+                    hoveredBase = newHover;
+                    hoveredBase.material.color.set(hoveredBase.userData.highlightColor);
+                    hoveredBase.scale.set(1.3, 1.3, 1.3);
+                }
+            }
+        }
+        
+        // 重置视图
+        function resetView() {
+            camera.position.set(0, 0, 15);
+            dnaGroup.rotation.set(0, 0, 0);
+            controls.reset();
+            log('View reset');
+        }
+        
+        // 动画循环
+        function animate() {
+            if (!isAnimating) return;
+            
+            requestAnimationFrame(animate);
+            
+            // 旋转DNA
+            dnaGroup.rotation.y += params.rotationSpeed;
+            
+            // 检查悬停
+            checkHover();
+            
+            controls.update();
+            renderer.render(scene, camera);
+        }
+        
+        // 开始动画
+        function startAnimation() {
+            isAnimating = true;
+            animate();
+        }
+        
+        // 清理资源
+        function cleanup() {
+            isAnimating = false;
+            
+            if (renderer) {
+                renderer.dispose();
+            }
+            
+            if (scene) {
+                // 清除场景中的所有对象
+                while (scene.children.length > 0) {
+                    const child = scene.children[0];
+                    scene.remove(child);
+                    
+                    if (child.geometry) child.geometry.dispose();
+                    if (child.material) {
+                        if (Array.isArray(child.material)) {
+                            child.material.forEach(m => m.dispose());
+                        } else {
+                            child.material.dispose();
+                        }
+                    }
+                }
+            }
+            
+            basePairs = [];
+            strand1 = null;
+            strand2 = null;
+            dnaGroup = null;
+            raycaster = null;
+            hoveredBase = null;
+        }
+        
+        // 页面加载完成后初始化
+        window.addEventListener('load', function() {
+            log('Page loaded, starting initialization');
+            init();
+        });
+        
+        // 页面卸载时清理
+        window.addEventListener('unload', cleanup);
+    </script>
+</body>
+</html>
